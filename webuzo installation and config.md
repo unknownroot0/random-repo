@@ -1,4 +1,6 @@
 use bitvise ssh as client
+
+
 login as root
 install **tmux**
 install webuzo
@@ -11,9 +13,15 @@ install php in the following versions
 8.3
 ```
 remove mysql(after removing use rm -rf /var/lib/mysql to remove the directory)
+
+
 install mariadb
+
+
 install nodejs for following versions
 18, 19, 20
+
+
 install certificates from "manage certificate"
 go to panel config and change the following values
 ```
