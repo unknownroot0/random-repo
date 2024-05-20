@@ -1,0 +1,7 @@
+# WHM Common Scripts to use at terminal 
+
+__ To kill dns zones __
+```
+/scripts/killdns example.com
+```
+
