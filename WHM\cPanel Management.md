@@ -6,7 +6,7 @@ __ To kill dns zones __
 ```
 
 # How to add rds to co-location server
-From WHMCS go to client area
+From WHMCS go to client area <br/>
 Select product and click manage
 Find **RDNS** on the page. 
 Click on + icon
