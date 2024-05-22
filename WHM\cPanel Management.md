@@ -11,3 +11,7 @@ Select product and click manage
 Find **RDNS** on the page. 
 Click on + icon
 Add rdns to the specific IP and click save.
+
+# How to check VPS storage usage in Depath
+
+du -h --max-depth=1
