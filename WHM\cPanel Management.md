@@ -22,6 +22,6 @@ du -h --max-depth=1
 Visit terminal then <br/>
 ```licD_cloudlinux``` <br/>
 If failed <br/>
-```licD_cloudlinux --mode``` <br/>
+Run ```licD_cloudlinux --mode``` <br/>
 Select `Bespoke mode` <br/>
 If license not activated then run `licD_cloudlinux` again <br/>
