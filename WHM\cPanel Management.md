@@ -8,7 +8,7 @@ __ To kill dns zones __
 # How to add rds to co-location server   <br/>
 From WHMCS go to client area <br/>
 Select product and click manage <br/>
-Find **RDNS** on the page. <br/>
+Find ** RDNS ** on the page. <br/>
 Click on + icon <br/>
 Add rdns to the specific IP and click save. <br/>
 
