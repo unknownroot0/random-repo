@@ -55,7 +55,29 @@ This command sets the default policy for the FORWARD chain to ACCEPT. It means t
 * `/usr/sbin/iptables -P OUTPUT ACCEPT`: <br/>
 This command sets the default policy for the OUTPUT chain to ACCEPT. It means that if no specific rule matches outgoing packets, they will be accepted.<br/>
 
+Overall Effect: <br/>
+
+
+These commands effectively reset the firewall configuration. Here's a summary of the actions:<br/>
+
+
+All existing rules from the filter, nat, and mangle tables are flushed.<br/>
+
+All custom chains from those tables are deleted.<br/>
+
+The default policy for all three chains (INPUT, FORWARD, OUTPUT) is set to allow all traffic.<br/>
+
 <br/>
+
+**_Note: While these commands allow all traffic, it's generally considered insecure to leave your firewall wide open. You should typically define more specific rules to control what traffic is allowed in and out of your system. This might involve creating rules that allow specific ports or protocols for desired applications and services_**
+
+**_Additional Notes:_**
+<br/>
+**_The iptables command is a powerful tool that can be used to configure complex firewall rules.
+It is important to thoroughly understand the iptables syntax before using it to modify your firewall configuration.
+You can find more information about iptables in the official documentation: https://linux.die.net/man/8/iptables_**
+<br/>
+
 rm -f /etc/pki/ca-trust/source/anchors/litespeedtech.pem <br/>
 rm -f /etc/pki/ca-trust/source/anchors/wildlitespeedtech.pem <br/>
 rm -f /etc/pki/ca-trust/source/anchors/www.litespeedtech.pem <br/>
