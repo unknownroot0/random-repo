@@ -55,17 +55,16 @@ This command sets the default policy for the FORWARD chain to ACCEPT. It means t
 * `/usr/sbin/iptables -P OUTPUT ACCEPT`: <br/>
 This command sets the default policy for the OUTPUT chain to ACCEPT. It means that if no specific rule matches outgoing packets, they will be accepted.<br/>
 
-Overall Effect: <br/>
+**Overall Effect:** <br/>
 
 
-These commands effectively reset the firewall configuration. Here's a summary of the actions:<br/>
+* These commands effectively reset the firewall configuration. Here's a summary of the actions:<br/>
 
+* All existing rules from the filter, nat, and mangle tables are flushed.<br/>
 
-All existing rules from the filter, nat, and mangle tables are flushed.<br/>
+* All custom chains from those tables are deleted.<br/>
 
-All custom chains from those tables are deleted.<br/>
-
-The default policy for all three chains (INPUT, FORWARD, OUTPUT) is set to allow all traffic.<br/>
+* The default policy for all three chains (INPUT, FORWARD, OUTPUT) is set to allow all traffic.<br/>
 
 <br/>
 
