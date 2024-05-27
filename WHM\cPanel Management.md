@@ -77,8 +77,10 @@ It is important to thoroughly understand the iptables syntax before using it to 
 You can find more information about iptables in the official documentation: https://linux.die.net/man/8/iptables_**
 <br/>
 
-rm -f /etc/pki/ca-trust/source/anchors/litespeedtech.pem <br/>
-rm -f /etc/pki/ca-trust/source/anchors/wildlitespeedtech.pem <br/>
-rm -f /etc/pki/ca-trust/source/anchors/www.litespeedtech.pem <br/>
+### lswscache certificate configurations
+
+* rm -f /etc/pki/ca-trust/source/anchors/litespeedtech.pem <br/>
+* rm -f /etc/pki/ca-trust/source/anchors/wildlitespeedtech.pem <br/>
+* rm -f /etc/pki/ca-trust/source/anchors/www.litespeedtech.pem <br/>
 <br/>
-/usr/bin/update-ca-trust
+* /usr/bin/update-ca-trust
