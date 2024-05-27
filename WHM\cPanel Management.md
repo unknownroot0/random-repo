@@ -35,10 +35,10 @@ If license not activated then run `licD_cloudlinux` again <br/>
 . `/usr/sbin/iptables -F`: <br/>
 This command flushes (deletes) all the rules in the default filter table of iptables. It removes all the configured firewall rules for incoming and outgoing network traffic.<br/>
 
-. `/usr/sbin/iptables -X`: <br/>
+* `/usr/sbin/iptables -X`: <br/>
 This command deletes all the user-defined chains in the default filter table. It removes any additional custom chains that were created.<br/>
 
-. `/usr/sbin/iptables -t nat -F`: <br/>
+* `/usr/sbin/iptables -t nat -F`: <br/>
 This command flushes the rules in the NAT table of iptables. It removes all the configured network address translation rules for network packet manipulation.<br/>
 
 . `/usr/sbin/iptables -t nat -X`: <br/>
