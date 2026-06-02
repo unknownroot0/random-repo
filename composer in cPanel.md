@@ -2,35 +2,29 @@
 
 ## Problem
 
-While installing Composer using the standard installer:
-
-```bash
-curl -sS https://getcomposer.org/installer | php
-```
-
-the installer failed with the following error:
+Composer installation failed with:
 
 ```text
 The allow_url_fopen setting is incorrect.
-Add the following to the end of your php.ini:
-    allow_url_fopen = On
+Add the following to php.ini:
+allow_url_fopen = On
 ```
 
 ## Investigation
 
-Checked the active PHP configuration:
+Checked PHP configuration:
 
 ```bash
 php --ini
 ```
 
-Output showed that the CLI PHP configuration was loaded from:
+Loaded configuration file:
 
 ```text
 /opt/cpanel/ea-php82/root/etc/php.ini
 ```
 
-Verified the setting:
+Verified setting:
 
 ```bash
 php -i | grep allow_url_fopen
@@ -42,18 +36,16 @@ Result:
 allow_url_fopen => Off => Off
 ```
 
-This confirmed that `allow_url_fopen` was disabled for the command-line PHP environment.
-
 ## Resolution
 
-Instead of modifying the global PHP configuration, the setting was enabled temporarily when running the Composer installer:
+Instead of modifying system `php.ini`, Composer was installed by enabling the setting only for runtime:
 
 ```bash
 curl -sS https://getcomposer.org/installer -o composer-setup.php
 php -d allow_url_fopen=On composer-setup.php
 ```
 
-The installation completed successfully:
+Installation succeeded:
 
 ```text
 Composer (version 2.10.0) successfully installed to: /home/USERNAME/composer.phar
@@ -61,53 +53,50 @@ Composer (version 2.10.0) successfully installed to: /home/USERNAME/composer.pha
 
 ## Moving Composer
 
-Created a local bin directory and moved the Composer PHAR file:
+A local bin directory was created:
 
 ```bash
 mkdir -p ~/bin/composer
 mv ~/composer.phar ~/bin/composer/
 ```
 
-Verified the file:
-
-```bash
-ls -lh ~/bin/composer/
-```
-
-Output:
-
-```text
-composer.phar
-```
-
-## Common Mistake Encountered
-
-The directory `~/bin/composer` already existed. Therefore:
-
-```bash
-mv ~/composer.phar ~/bin/composer
-```
-
-moved the file into the directory rather than renaming it.
-
-As a result:
-
-```bash
-php ~/bin/composer --version
-```
-
-did not work because `~/bin/composer` was a directory.
-
-The correct command was:
+Composer is then accessed via:
 
 ```bash
 php ~/bin/composer/composer.phar --version
+```
+
+## Issue Encountered
+
+A directory conflict occurred because `~/bin/composer` already existed, causing the PHAR file to be placed inside it instead of being renamed.
+
+Correct path became:
+
+```text
+~/bin/composer/composer.phar
+```
+
+## Alias Setup (Final Step)
+
+To simplify usage, an alias was added:
+
+```bash
+echo 'alias composer="php $HOME/bin/composer/composer.phar"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+This allows Composer to be used globally as:
+
+```bash
+composer --version
+composer install
+composer update
 ```
 
 ## Verification
 
 ```bash
-php ~/bin/composer/composer.phar --version
+composer --version
 ```
 
 Output:
@@ -119,4 +108,4 @@ PHP version 8.2.30
 
 ## Final Status
 
-Composer was successfully installed and verified on a cPanel EA-PHP 8.2 environment without modifying the global PHP configuration. The issue was resolved by temporarily enabling `allow_url_fopen` using the `-d` PHP runtime option during installation.
+Composer was successfully installed on a cPanel EA-PHP 8.2 environment without modifying global PHP configuration. The issue was resolved using a runtime override (`-d allow_url_fopen=On`) and a user-level alias for ease of use.
