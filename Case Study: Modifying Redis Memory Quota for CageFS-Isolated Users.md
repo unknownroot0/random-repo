@@ -1,262 +1,146 @@
-# Knowledge Base Article: Adjusting Redis Memory Limit and Eviction Policy in CloudLinux CageFS Environments
 
-**Article ID:** KB-2026-0624-REDIS-02
-**Target Audience:** Level 2 Support / System Administrators
-**Environment:** CloudLinux OS, CageFS, systemd Redis, LiteSpeed or Apache stack
-**Last Updated:** June 24, 2026
-**Risk Level:** Medium (service restart required)
+
+**Applies to:** LiteSpeed / OpenLiteSpeed environments with per‑user Redis isolation via CageFS  
+**Audience:** System administrators, senior DevOps engineers  
+**Last validated:** 2026-06-22  
 
 ---
 
-## 1. Overview
+## Overview
 
-This article explains how to safely adjust the **Redis memory limit** and **eviction policy** in a CloudLinux CageFS-based hosting environment.
-
-Redis is typically deployed as a **system-wide service** (not per-user), and memory tuning is applied globally unless multiple Redis instances are explicitly configured.
-
-These changes are commonly required when:
-
-* Applications experience Redis `OOM command not allowed`
-* Cache eviction is too aggressive or too permissive
-* Memory utilization is either too high or inefficient
-* Performance tuning is required for WordPress / Magento / Laravel workloads
+Each hosted user with Redis access runs an isolated instance inside their CageFS. The memory cap is defined by a quota file (`redis.size`) and enforced by the service wrapper script `/usr/local/lsws/lsns/bin/redis_svc.sh`. By default, the instance uses the `noeviction` policy, which will hard‑crash the application when the memory limit is reached. This article describes how to safely increase the memory limit and inject a safer eviction policy (`allkeys-lru`) so that keys are evicted automatically instead of causing application errors.
 
 ---
 
-## 2. Architecture Understanding (Important)
+## Prerequisites
 
-In standard hosting environments:
-
-* Redis runs as a **single systemd service**
-* Configuration is stored in:
-
-  ```
-  /etc/redis.conf
-  ```
-* CageFS does **NOT isolate Redis per user by default**
-* All users typically share the same Redis instance unless custom multi-instance setup exists
-
-> ⚠️ If your environment uses Redis per user, it is a custom architecture and must be documented separately.
+- **Root** or equivalent `sudo` access to the host server.
+- Target username (e.g., `cozymar1`).
+- The Redis instance must be managed by the LiteSpeed CageFS wrapper; the script path `/usr/local/lsws/lsns/bin/redis_svc.sh` must exist.
+- The user’s CageFS base directory (typically `/home2/<username>`) must be accessible.
 
 ---
 
-## 3. Preconditions
+## Procedure
 
-Before making changes:
+### 1. Remove the immutable file attribute
 
-* Root or sudo access required
-* Confirm Redis service name:
-
-  ```bash
-  systemctl status redis
-  ```
-* Identify current memory usage:
-
-  ```bash
-  redis-cli INFO memory
-  ```
-* Take configuration backup:
-
-  ```bash
-  cp /etc/redis.conf /etc/redis.conf.bak.$(date +%F)
-  ```
-
----
-
-## 4. Current Configuration Check
-
-Verify current settings:
+The quota file is protected by the extended filesystem immutable flag (`+i`). Strip it to allow editing:
 
 ```bash
-grep -E "maxmemory|maxmemory-policy" /etc/redis.conf
+chattr -i /home2/cozymar1/.cagefs/tmp/redis/redis.size
 ```
 
-Example output:
+### 2. Temporarily grant write permission
 
-```text
-maxmemory 268435456
-maxmemory-policy noeviction
+The file normally has read‑only permissions (`400`). Change it to allow the root user to write:
+
+```bash
+chmod 600 /home2/cozymar1/.cagefs/tmp/redis/redis.size
 ```
+
+### 3. Edit the memory limit value
+
+Open the file with an editor and replace the old value with the new limit in **megabytes** (plain integer, no unit suffix).  
+Example: changing from `64` (64 MB) to `256` (256 MB).
+
+```bash
+vi /home2/cozymar1/.cagefs/tmp/redis/redis.size
+```
+
+### 4. Restore original permissions and re‑apply immutability
+
+```bash
+chmod 400 /home2/cozymar1/.cagefs/tmp/redis/redis.size
+chattr +i /home2/cozymar1/.cagefs/tmp/redis/redis.size
+```
+
+### 5. Restart the user’s Redis instance
+
+The service wrapper must be called with the `stop` and `start` subcommands and the username.  
+**Important:** The `start` command may run the daemon in the foreground of your shell session, blocking the terminal. To handle this, you can:
+
+- Use `Ctrl+Z` to suspend the process, then `bg` to push it into the background, **or**
+- Prepend `nohup` and redirect output, **or**
+- Run the command inside a `screen`/`tmux` session.
+
+```bash
+/usr/local/lsws/lsns/bin/redis_svc.sh stop cozymar1
+/usr/local/lsws/lsns/bin/redis_svc.sh start cozymar1   # handle foreground as needed
+```
+
+After the start command, the new memory limit from `redis.size` is loaded.
+
+### 6. Hot‑inject an eviction policy (if needed)
+
+Out‑of‑the‑box Redis instances default to `noeviction`, causing `OOM` errors when the memory limit is hit. We inject the `allkeys-lru` policy at runtime via the user’s Unix socket:
+
+```bash
+redis-cli -s /home2/cozymar1/.cagefs/tmp/redis.sock config set maxmemory-policy allkeys-lru
+```
+
+> **⚠ Warning:** This change is **not persistent**. A service restart will revert the policy to the default. To make the policy permanent, see the section below.
 
 ---
 
-## 5. Procedure: Update Redis Memory Limit
+## Verification
 
-### Step 1: Edit Redis Configuration
-
-Open configuration file:
+Query the active instance directly to confirm the limit and policy:
 
 ```bash
-vi /etc/redis.conf
-```
-
-Modify or add:
-
-```ini
-maxmemory 536870912
-```
-
-### Recommended values:
-
-| RAM Size | Redis maxmemory |
-| -------- | --------------- |
-| 2 GB VPS | 256MB           |
-| 4 GB VPS | 512MB           |
-| 8 GB VPS | 1–2GB           |
-| 16 GB+   | 2–4GB           |
-
----
-
-## 6. Procedure: Configure Eviction Policy
-
-Set appropriate eviction policy:
-
-```ini
-maxmemory-policy allkeys-lru
-```
-
-### Policy options:
-
-| Policy         | Behavior                                     |
-| -------------- | -------------------------------------------- |
-| noeviction     | Reject writes when full                      |
-| allkeys-lru    | Evict least recently used keys (recommended) |
-| volatile-lru   | Evict only keys with TTL                     |
-| allkeys-random | Random eviction                              |
-
-> ✅ Recommended for hosting environments: `allkeys-lru`
-
----
-
-## 7. Apply Changes
-
-Restart Redis service:
-
-```bash
-systemctl restart redis
-```
-
-Verify service status:
-
-```bash
-systemctl status redis
-```
-
----
-
-## 8. Validation Steps
-
-### Check applied memory settings:
-
-```bash
-redis-cli INFO memory | grep maxmemory
+redis-cli -s /home2/cozymar1/.cagefs/tmp/redis.sock info memory | grep -E "maxmemory|policy"
 ```
 
 Expected output:
 
-```text
-maxmemory:536870912
+```
+maxmemory:268435456
+maxmemory_policy:allkeys-lru
 ```
 
-### Check eviction policy:
-
-```bash
-redis-cli CONFIG GET maxmemory-policy
-```
-
-Expected:
-
-```text
-1) "maxmemory-policy"
-2) "allkeys-lru"
-```
+- `maxmemory` is shown in bytes: 256 × 1024 × 1024 = **268,435,456** (256 MB).
+- `maxmemory_policy` is `allkeys-lru` — Least Recently Used eviction across all keys.
 
 ---
 
-## 9. CageFS Considerations
+## Making the Eviction Policy Permanent
 
-* CageFS does not restrict Redis memory directly
-* Redis changes are **global system-level changes**
-* No per-user Redis tuning is supported unless:
+The `redis_svc.sh` script builds the Redis configuration from a template that does **not** read `redis.size` for the policy. To survive restarts, you must permanently add the policy to the instance configuration.
 
-  * Redis is containerized per user (non-standard)
-  * Redis cluster per tenant is implemented
+### Recommended approach
 
----
+Locate the Redis configuration file template used by the wrapper. Common locations:
 
-## 10. Troubleshooting
+- `/usr/local/lsws/lsns/etc/redis.conf.template`  
+- A per‑user config inside the CageFS (e.g., `/home2/cozymar1/.cagefs/tmp/redis/redis.conf`)
 
-### Issue: Redis not restarting
+Add or modify the line:
 
-Check logs:
-
-```bash
-journalctl -u redis -xe
+```
+maxmemory-policy allkeys-lru
 ```
 
-Common causes:
+Then restart the user’s instance to pick up the permanent change.
 
-* Invalid config syntax
-* Memory value exceeds system RAM
-* Port conflict
+If no per‑user template exists, consider adding a post‑start hook in the wrapper script, or use a startup script that executes the `redis-cli config set` command automatically after the instance is online (e.g., a `systemd` unit with an `ExecStartPost` line, if applicable).
 
 ---
 
-### Issue: OOM errors still occurring
+## Important Notes & Caveats
 
-Check system memory:
-
-```bash
-free -m
-```
-
-Consider:
-
-* Increasing system RAM
-* Reducing Redis maxmemory usage
-* Reviewing application cache usage
+- **Isolation boundary:** All changes are strictly confined to the user’s CageFS environment. No global Redis instances (port `6379`) or other tenant accounts are affected.
+- **Foreground process handling:** The start command may attach to the terminal. Always ensure the process is safely backgrounded to avoid accidental termination when you log out.
+- **File permissions:** The `redis.size` file should remain immutable and read‑only (`400`) under normal operation to prevent accidental or malicious modifications.
+- **Pre‑change backup:** Before modifying any quota file, consider making a backup (`cp redis.size redis.size.bak`), especially if the environment has compliance requirements.
 
 ---
 
-### Issue: High eviction rate
+## Reference
 
-Check stats:
-
-```bash
-redis-cli INFO stats | grep evicted_keys
-```
-
-If high:
-
-* Increase maxmemory
-* Tune application caching behavior
+- **Service script:** `/usr/local/lsws/lsns/bin/redis_svc.sh`
+- **User socket path:** `/home2/<username>/.cagefs/tmp/redis.sock`
+- **Quota file:** `/home2/<username>/.cagefs/tmp/redis/redis.size`
 
 ---
 
-## 11. Safe Rollback Procedure
-
-If issues occur:
-
-```bash
-cp /etc/redis.conf.bak.YYYY-MM-DD /etc/redis.conf
-systemctl restart redis
-```
-
----
-
-## 12. Summary
-
-* Redis is a **system-wide service in standard CloudLinux environments**
-* Memory and eviction tuning must be done via `/etc/redis.conf`
-* Recommended eviction policy: `allkeys-lru`
-* Always restart Redis after changes
-* Validate using `redis-cli INFO memory`
-
----
-
-## 13. Final Notes for Support
-
-* Never apply per-user Redis assumptions unless explicitly deployed
-* Always verify service architecture before applying changes
-* Prefer incremental memory adjustments
-* Monitor after restart for at least 5–10 minutes
+*This article is ready for internal knowledge base or client‑facing documentation submission. For any questions, contact the DevOps team.*
