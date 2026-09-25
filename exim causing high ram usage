@@ -1,0 +1,356 @@
+# Internal Note: Webuzo Exim Queue Causing High RAM/CPU
+
+## Issue
+
+On Webuzo servers, excessive RAM/CPU usage may be caused by a large number of Webuzo `exim_email_queue_cli` processes.
+
+Example process:
+
+```bash
+/usr/local/emps/bin/php /usr/local/webuzo/cli.php --exim_email_queue_cli
+```
+
+In the investigated case:
+
+```text
+Exim queue:          4,616,606 messages
+Queue workers:       98
+Combined worker RSS: 33.27 GB
+Server RAM:          62 GB
+Available RAM:       6.7 GB
+```
+
+Individual workers normally consumed around **670–700 MB RSS**, while some grew to **2–2.7 GB**.
+
+---
+
+## Important observation
+
+The Webuzo queue workers are **separate from the Exim systemd service**.
+
+Stopping Exim:
+
+```bash
+systemctl stop exim
+```
+
+does **not necessarily stop**:
+
+```bash
+/usr/local/webuzo/cli.php --exim_email_queue_cli
+```
+
+In this case, Exim was inactive while the Webuzo queue workers continued to run and consume CPU/RAM.
+
+Therefore, when troubleshooting high RAM caused by Exim-related activity, check **both Exim and Webuzo queue workers**.
+
+---
+
+# Investigation Procedure
+
+### 1. Check overall memory
+
+```bash
+free -h
+```
+
+Also identify the biggest processes:
+
+```bash
+ps -eo pid,user,%mem,rss,cmd --sort=-rss | head -30
+```
+
+---
+
+### 2. Count Webuzo queue workers
+
+```bash
+pgrep -fc -- '--exim_email_queue_cli'
+```
+
+or:
+
+```bash
+pgrep -af 'exim_email_queue_cli'
+```
+
+---
+
+### 3. Calculate total RSS used by queue workers
+
+```bash
+ps -eo rss,cmd | grep 'exim_email_queue_cli' | grep -v grep | \
+awk '{sum+=$1} END {printf "Total RSS: %.2f GB\n", sum/1024/1024}'
+```
+
+This is useful because Webuzo's process display may show each process separately.
+
+---
+
+### 4. Check worker age and CPU usage
+
+```bash
+ps -eo pid,ppid,%cpu,rss,etime,stat,cmd | \
+grep 'exim_email_queue_cli' | grep -v grep
+```
+
+Look for:
+
+* Workers running for many hours/days
+* Workers consuming significant CPU
+* Multiple workers running concurrently
+* PPID `1` indicating long-lived/orphaned workers
+
+---
+
+### 5. Check Exim queue size
+
+```bash
+exim -bpc
+```
+
+Be careful with queue-intensive commands on extremely large queues.
+
+A queue containing millions of messages can make queue inspection itself resource-intensive.
+
+---
+
+### 6. Check how the Webuzo worker is interacting with the queue
+
+`lsof` can be useful:
+
+```bash
+lsof -p PID | head -50
+```
+
+In this case, workers were accessing:
+
+```text
+/var/webuzo/db/email_queue.db
+/var/webuzo/db/email_queue.db-shm
+```
+
+This showed that Webuzo's own SQLite email queue database was involved.
+
+Do **not** manually remove these database/WAL files while queue workers are running.
+
+---
+
+# Cleaning Old/Idle Workers
+
+A targeted cleanup command was used successfully during the incident.
+
+### Identify old and idle workers
+
+```bash
+ps -eo pid,%cpu,etimes,rss,stat,cmd | \
+awk '/\/usr\/local\/webuzo\/cli\.php --exim_email_queue_cli/ &&
+     /\/usr\/local\/emps\/bin\/php/ &&
+     $2 < 0.1 && $3 > 43200 {print}'
+```
+
+Criteria:
+
+```text
+CPU < 0.1%
+Runtime > 43200 seconds (12 hours)
+Specific Webuzo Exim queue worker
+```
+
+### Kill only those workers
+
+```bash
+ps -eo pid,%cpu,etimes,rss,stat,cmd | \
+awk '/\/usr\/local\/webuzo\/cli\.php --exim_email_queue_cli/ &&
+     /\/usr\/local\/emps\/bin\/php/ &&
+     $2 < 0.1 && $3 > 43200 {print $1}' |
+xargs -r kill
+```
+
+Then verify:
+
+```bash
+pgrep -fc -- '--exim_email_queue_cli'
+```
+
+and:
+
+```bash
+free -h
+```
+
+This is preferable to blindly killing every worker when mail service is still required.
+
+---
+
+# If Mail Is Not Required
+
+If the server does not need email functionality:
+
+1. Stop Exim.
+2. Confirm that no mail service is required by hosted applications.
+3. Remove/disable Exim using the appropriate Webuzo-supported method.
+4. Stop remaining `exim_email_queue_cli` workers.
+5. Confirm they do not respawn.
+6. Only then clean up Webuzo's email queue/database through a supported Webuzo method.
+
+For an emergency cleanup of remaining workers:
+
+```bash
+pkill -f 'exim_email_queue_cli'
+```
+
+Verify:
+
+```bash
+pgrep -af 'exim_email_queue_cli'
+```
+
+If necessary:
+
+```bash
+pkill -9 -f 'exim_email_queue_cli'
+```
+
+Do not immediately delete:
+
+```text
+/var/webuzo/db/email_queue.db
+/var/webuzo/db/email_queue.db-shm
+/var/webuzo/db/email_queue.db-wal
+```
+
+without confirming Webuzo's supported cleanup procedure.
+
+---
+
+# Useful Webuzo Command Found During Investigation
+
+To clear the Webuzo email queue:
+
+```bash
+webuzo --delete_email_queue
+```
+
+**Use only when the queued mail can safely be discarded.**
+
+In the investigated case, this was run because the queued emails were not required.
+
+Afterward:
+
+```bash
+exim -bpc
+```
+
+can be used to verify the Exim queue count.
+
+---
+
+# Key Lessons
+
+### Do not assume high Exim CPU/RAM means the Exim daemon itself is responsible.
+
+Check:
+
+```bash
+systemctl status exim
+```
+
+and separately:
+
+```bash
+pgrep -fc -- '--exim_email_queue_cli'
+```
+
+### Stopping Exim does not guarantee Webuzo queue workers stop.
+
+Always verify:
+
+```bash
+pgrep -af 'exim_email_queue_cli'
+```
+
+### Look for overlapping workers.
+
+A normal scheduled task should not leave old workers running indefinitely while launching new workers periodically.
+
+Repeated workers with runtimes such as:
+
+```text
+1 day
+2 days
+```
+
+indicate a queue-processing/concurrency problem.
+
+### Measure aggregate RSS.
+
+One worker at ~680 MB doesn't look disastrous, but:
+
+```text
+25 workers × ~680 MB
+```
+
+is already substantial, and 98 workers can create severe memory pressure.
+
+### Check Webuzo's SQLite queue database.
+
+If `lsof` shows:
+
+```text
+/var/webuzo/db/email_queue.db
+/var/webuzo/db/email_queue.db-shm
+```
+
+the problem is likely within Webuzo's email queue processing rather than simple Exim daemon memory usage.
+
+---
+
+## Quick Troubleshooting Checklist
+
+```bash
+# Overall RAM
+free -h
+
+# Biggest processes
+ps -eo pid,user,%mem,rss,cmd --sort=-rss | head -30
+
+# Number of Webuzo queue workers
+pgrep -fc -- '--exim_email_queue_cli'
+
+# Aggregate worker RSS
+ps -eo rss,cmd | grep 'exim_email_queue_cli' | grep -v grep | \
+awk '{sum+=$1} END {printf "Total RSS: %.2f GB\n", sum/1024/1024}'
+
+# Queue size
+exim -bpc
+
+# Worker details
+ps -eo pid,ppid,%cpu,rss,etime,stat,cmd | \
+grep 'exim_email_queue_cli' | grep -v grep
+
+# Check Exim
+systemctl status exim
+
+# Inspect a worker
+lsof -p PID | head -50
+```
+
+### Escalation information to provide Webuzo
+
+When opening a Webuzo ticket, include:
+
+```text
+Server RAM:
+Exim queue size:
+Number of exim_email_queue_cli workers:
+Combined RSS:
+Largest individual worker:
+Worker runtime:
+Whether Exim is active/inactive:
+Whether workers respawn after termination:
+Presence of /var/webuzo/db/email_queue.db:
+Presence/size of email_queue.db-shm:
+```
+
+This gives Webuzo enough information to investigate **queue-worker concurrency, worker termination, and SQLite queue processing** rather than only the Exim daemon.
